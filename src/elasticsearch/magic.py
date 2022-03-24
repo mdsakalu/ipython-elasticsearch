@@ -5,7 +5,8 @@ import json
 import os
 import urllib.parse
 
-from IPython.core.magic import Magics, magics_class, line_cell_magic
+from IPython.core.magic import Magics, magics_class, line_cell_magic, needs_local_scope
+from IPython.core.magic_arguments import argument, magic_arguments, parse_argstring
 import requests
 
 from . import notebook as nb
@@ -27,10 +28,15 @@ class ElasticsearchMagics(Magics):
         self._base_url = value
         print('Using: {}'.format(self.base_url))
 
+    @needs_local_scope
     @line_cell_magic
-    def elasticsearch(self, line, cell=None):
+    @magic_arguments()
+    @argument('base_url', type=str, nargs='?', default=None, help='Elasticsearch URL.')
+    @argument("-o", "--output", type=str, default={}, help="save result to variable of this name")
+    def elasticsearch(self, line, cell=None, local_ns=None):
         "elasticsearch line magic"
-        cell_base_url = line if line else self.base_url
+        args = parse_argstring(self.elasticsearch, line)
+        cell_base_url = args.base_url if args.base_url else self.base_url
 
         if not cell:
             self.base_url = cell_base_url
@@ -51,14 +57,22 @@ class ElasticsearchMagics(Magics):
                                                 url=urllib.parse.urljoin(cell_base_url, path),
                                                 **request_args).prepare())
             try:
-                nb.output_cell(rsp.json())
+                if args.output:
+                    local_ns[args.output] = rsp.json()
+                    nb.output_cell(local_ns[args.output])
+                else:
+                    nb.output_cell(rsp.json())
             except json.JSONDecodeError:
                 # TODO: parse charset out of response eg: 'application/json; charset=UTF-8'
                 # >>> requests.get("http://localhost:9200/_search").headers['Content-Type']
                 # 'application/json; charset=UTF-8'
                 # >>> requests.get("http://localhost:9200/_cat").headers['Content-Type']
                 # 'text/plain; charset=UTF-8'
-                print(rsp.content.decode('UTF-8'))  # ES [probably] always returns utf-8
+                if args.output:
+                    local_ns[args.output] = rsp.content.decode('UTF-8')
+                    print(local_ns[args.output])
+                else:
+                    print(rsp.content.decode('UTF-8'))  # ES [probably] always returns utf-8
             return rsp
 
 
